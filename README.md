@@ -15,4 +15,6 @@ Line 36: Change excludes to the names of folders you want to exclude from the ba
 
 Line 38: Set doUnmount to true if you want to automatically unmount the drive after backup. This is just extra security so that your backups don't get accidentally written to, and so if you're using an external backup drive you can just unplug it when the backup is done
 
+A good place to store my scripts is in the bin subfolder of your home folder ($HOME/bin) just make sure it's in your PATH
+
 As with all my scripts, I'd recommend that you read and understand this script thoroughly before you run it. I take no responsibility for any loss of data! This one is very thoroughly commented, so go ahead and change it as necessary to suit your setup.
