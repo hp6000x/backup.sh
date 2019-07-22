@@ -1,20 +1,43 @@
-# backup.sh
-Uses rsync to back up your folders to a filesystem, optionally mounting and unmounting as it goes. Can also be used to configure a daily, unattended backup job.
+#backup.sh version 2.0
+Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
+Ideally suited for backing up laptops with external drives when at home and connected.
 
-If the volume is already mounted elsewhere, it will unmount it and then remount it to the configured location. If mount by UUID fails, it can optionally mount by device URI, which is detected automatically.
+Format is: /pub/scripts/backup2.sh {command} [options]
 
-First edit the following settings:
+Commands:
+	[e]nable:	Enable the daily automated backup. (Uses sudo)
+	[d]isable:	Disable the daily automated backup. (Uses sudo)
+	[r]un:		Run a backup job. (Must be run as root)
+	[u]pdate:	Checks github for new version and updates as necessary.
+	[s]etup:	Create a new config file (either in the default place or where specified with --config).
+	[h]elp:		Display this information page.
 
-Line 22: Change backupuuid to the uuid of the device where you want to store your backups. To find it, connect your backup device and type blkid. The device you want should be the last entry in the list.
+Options:
+	-v				Give more details when running backups or displaying info
+	--config={path to config file}	Use specified config file instead of default.
 
-Line 29: Change backuproot if you want to use a different mountpoint for your backup volume.
+Note, if you specify an alternate config which does not exist, you will automatically be taken
+through the setup process, just as you are when running this script for the first time.
 
-Line 30: Change backupdirectory if you want to keep your backups in a different folder on the backup volume.
+Save this script somewhere in your PATH. I have a custom folder (/pub/scripts) which you can mimic
+if you like, just don't forget to set the folders to publicly readable with 
 
-Line 36: Change excludes to the names of folders you want to exclude from the backup. Full paths not required.
+	chmod -R 755 /pub
 
-Line 38: Set doUnmount to true if you want to automatically unmount the drive after backup. This is just extra security so that your backups don't get accidentally written to, and so if you're using an external backup drive you can just unplug it when the backup is done
+Another good place to put scripts is in $HOME/bin, just make sure it's in your path. You may need
+to add a line to your .bashrc file:
 
-A good place to store my scripts is in the bin subfolder of your home folder ($HOME/bin) just make sure it's in your PATH
+	PATH="$HOME/bin:$PATH"
+	
+As with all my scripts, I'd recommend reading through and understanding this script, and tailoring it
+to suit your system before running it for the first time. I take no responsibility for lost data.
 
-As with all my scripts, I'd recommend that you read and understand this script thoroughly before you run it. I take no responsibility for any loss of data! This one is very thoroughly commented, so go ahead and change it as necessary to suit your setup.
+WHAT'S CHANGED???
+
+The code for mounting, backing up, unmounting, and enabling and disabling anacron backup jobs is all
+pretty much the same as v1, only now its been split into functions for ease of understanding and editing.
+
+Instead of hard-coded settings which you have to edit the script to change, all settings are now stored 
+in a config file, either saved as /etc/hp6000_backup.conf or as the filename specified at execution time.
+
+Additionally, added an interactive setup routine to create initial config file from user input, with defaults

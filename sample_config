@@ -1,0 +1,17 @@
+#NOTE: All options in this sample MUST be provided in a valid config file
+#any missing or bad values will cause the script to fail or misbehave.
+
+UUID="0096c06d-859e-449c-8fd5-afaab01c0ef2"
+a=($(blkid | grep $UUID))
+DEVICEURI=${a[0]::-1}
+unset a
+BACKUPROOT="/mnt/archive"
+BACKUPDIR="backups"
+BACKUPSRC="/home"
+EXCLUDES="GoogleDrive .cache"
+SCRIPTNAME="backupv2"
+BACKUPLOG="/var/log/$SCRIPTNAME.log"
+SCRIPTFILE="/etc/cron.daily/$SCRIPTNAME"
+LOGCONFIG="/etc/logrotate.d/$SCRIPTNAME"
+RSYNCCMD="/usr/bin/rsync -aAXogu --delete --ignore-errors"
+UNMOUNTAFTER="false"
