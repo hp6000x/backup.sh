@@ -1,4 +1,4 @@
-#backup.sh version 2.0
+# backup.sh version 2.0
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Ideally suited for backing up laptops with external drives when at home and connected.
