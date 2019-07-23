@@ -37,7 +37,7 @@ to add a line to your .bashrc file:
 As with all my scripts, I'd recommend reading through and understanding this script, and tailoring it
 to suit your system before running it for the first time. I take no responsibility for lost data.
 
-WHAT'S CHANGED???
+# What's changed?
 
 The code for mounting, backing up, unmounting, and enabling and disabling anacron backup jobs is all
 pretty much the same as v1, only now its been split into functions for ease of understanding and editing.
