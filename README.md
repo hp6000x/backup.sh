@@ -14,11 +14,11 @@ Commands:
 	[r]un:		Run a backup job. (Must be run as root)
 	[u]pdate:	Checks github for new version and updates as necessary.
 	[s]etup:	Create a new config file (either in the default place or where specified with --config).
-	[h]elp:		Display this information page.
+	[h]elp:	Display this information page.
 
 Options:
 
-	-v				Give more details when running backups or displaying info
+	-v					Give more details when running backups or displaying info
 	--config={path to config file}	Use specified config file instead of default.
 
 Note, if you specify an alternate config which does not exist, you will automatically be taken
