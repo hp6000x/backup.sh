@@ -46,3 +46,6 @@ Instead of hard-coded settings which you have to edit the script to change, all 
 in a config file, either saved as /etc/hp6000_backup.conf or as the filename specified at execution time.
 
 Additionally, added an interactive setup routine to create initial config file from user input, with defaults
+
+Finally, script can now update itself if the version hosted at github changes.
+
