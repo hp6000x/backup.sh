@@ -1,4 +1,4 @@
-# backup.sh version 2.1
+# backup.sh version 2.1.1
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Now with daemon mode. Just plug in your drive and it backs up almost immediately!
@@ -22,7 +22,7 @@ Commands:
 
 Options:
 
-	-v								Give more details when running backups or displaying info
+	-v						Give more details when running backups or displaying info
 	--config={path to config file}	Use specified config file instead of default.
 
 Note, if you specify an alternate config which does not exist, you will automatically be taken
@@ -113,6 +113,14 @@ you already know how to code init scripts for other distros, feel free to fork a
 love to see this functionality available in other distros.
 
 # What's changed?
+
+v2.1.1
+
+Minor modification to the super secret easter egg, it now checks if the sleep command is active, just in case
+anyone was cheating!
+
+Minor tweaks and bug fixes. Tidied code even further than before. Man, this code is tidy.
+
 
 v2.1
 

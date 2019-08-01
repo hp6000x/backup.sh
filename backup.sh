@@ -4,6 +4,7 @@
 #
 #CHANGELOG
 #
+#	v2.1.1	(Aug 19)	Bug fixes, code tidied further, easter egg made more tricksy to stop cheaters
 #	v2.1	(Jul 19)	Added daemon mode, as well as the ability to create and remove daemon mode startup scripts. Also more bug fixes and code tidying
 #	v2.0	(Jul 19)	Added config files, changed order of operation, split code into functions, added update and reconfiguration options, generally tidied up and improved code, fixed some bugs
 #	v1 to v1.8	(Mar to Jun 19)	Original backup.sh, improved over time
@@ -42,6 +43,13 @@ doExit()
 	fi
 }
 
+doSleep()
+{
+	isSleeping=true
+	sleep $1
+	isSleeping=false
+}
+
 #call me when backup fails :-)
 errorExit() {
 	if $DEBUG; then echo "errorExit \"$1\" \"$2\""; fi
@@ -59,7 +67,7 @@ echotd() {
 killed() {
 	if $DEBUG; then 
 		sharpshooter=true
-		for a in $isBackingUp $isSettingUp $isDaemonMode; do
+		for a in $isBackingUp $isSettingUp $isDaemonMode $isSleeping; do
 			$a && sharpshooter=false
 		done
 		if ! $sharpshooter ; then
@@ -75,7 +83,8 @@ killed() {
 	fi
 	if $isBackingUp; then
 		echo "Backup aborted at $(date)" >&2
-	elif $isDaemonMode; then
+	fi
+	if $isDaemonMode; then
 		echo "Stopping daemon at $(date)"
 		exit 0
 	elif $isSettingUp; then
@@ -191,7 +200,7 @@ doCreateConfig()
 		echo "If it's already connected, unmount and disconnect it, then reconnect"
 		read dummy
 		echo "Waiting ten seconds for file system shenanigans to sort themselves out..."
-		sleep 10s
+		doSleep 10s
 		if [[ "$defUUID" = "null" ]]; then #if we don't already have a UUID to use as default, get the last mounted device's UUID
 			a=($(sudo blkid | tail -n 1)) #store the last line of blkid's output in an array
 			a[2]="${a[2]#*=}" #get everything after the "=" from the third item in the array
@@ -548,14 +557,14 @@ doMountVolume()
 			errorExit 4
 			return 4
 		fi
-	elif [[ ! -z $(lsblk -lp | grep $DEVICEURI | awk '{print $NF})') ]]; then #if the mountpoint exists, and a search for the last 3 chars of DEVICEURI in lsblk is nonzero, something is mounted at the mount point
+	elif [[ ! -z $(lsblk -lp | grep $DEVICEURI | awk '{print $NF}') ]]; then #if the mountpoint exists, and a search for the last 3 chars of DEVICEURI in lsblk is nonzero, something is mounted at the mount point
 		a=$(lsblk -lp | grep $BACKUPROOT) # get info about whatever is mounted at BACKUPROOT
 		a=${a/ */} #everything before the first space in that info is the URI of the device
 		#b=${a[0]:-3} #last three chars of device URI for device mounted at BACKUPROOT. Device URI is in first element of array "a"
 		#c=${DEVICEURI:-3} #last three chars of our backup device URI
-		if [[ "$b" != "$DEVICEURI" ]]; then #  If BACKUPROOT's device URI and DEVICEURI do not match, something else is mounted at BACKUPROOT
+		if [[ "$a" != "$DEVICEURI" ]]; then #  If BACKUPROOT's device URI and DEVICEURI do not match, something else is mounted at BACKUPROOT
 			echotd "Something else mounted at $BACKUPROOT. Unmounting"
-			sleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
+			doSleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
 			if ! (umount "$BACKUPROOT" > /dev/null 2>&1); then #unmount it and check for success
 				#failed to unmount, so display a message and exit
 				echotd "Could not unmount $BACKUPROOT. Exiting."
@@ -573,7 +582,7 @@ doMountVolume()
 		#unset a
 		if [[ -n "$backupmounted" ]]; then #if the volume has a mount point, it is mounted, so...
 			echotd "Backup volume $DEVICEURI mounted to $backupmounted. Unmounting"
-			sleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
+			doSleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
 			if ! (umount "$backupmounted" > /dev/null 2>&1); then #unmount it and check for success
 				if ! $isDaemonMode; then #not in daemon mode, exit, in daemon mode, carry on
 					# Failed to unmount, so display message and exit
@@ -625,7 +634,7 @@ doUnmountVolume()
 	if $DEBUG; then echo "doUnmountVolume"; fi
 	#Unmount the backup volume
 	echotd "Unmounting backup volume" 
-	sleep 10 # wait 10 seconds before unmounting, just in case there's write caching involved
+	doSleep 10 # wait 10 seconds before unmounting, just in case there's write caching involved
 	if (umount "$BACKUPROOT" > /dev/null 2>&1); then # unmount the backup volume and check for success
 		echotd "Backup volume unmounted successfully" 
 	else #Unmount failed
@@ -727,9 +736,9 @@ daemonMode()
 	while true; do #loop forever
 		while ! (blkid | grep -q "$UUID"); do #while UUID is not connected
 			if $DEBUG; then echotd "Waiting for device."; fi
-			sleep 30s
+			doSleep 30s
 		done
-		sleep 10s # it takes a few seconds for linux to set up the device after connecting.
+		doSleep 10s # it takes a few seconds for linux to set up the device after connecting.
 		if (blkid | grep -q "$UUID"); then #if UUID is connected
 			if $DEBUG; then echo "Device connected. Backing up."; fi
 			doInitBackup
@@ -741,31 +750,33 @@ daemonMode()
 		fi
 		while (blkid | grep -q "$UUID"); do #while UUID is connected
 			if $DEBUG; then echotd "Waiting for device disconnect."; fi
-			sleep 30s
+			doSleep 30s
 		done
 	done
 }
 
 getProcess()
 {
-	if $DEBUG; then echo "getProcess"; fi
-	ps aux | grep "$THISSCRIPT daemon" | grep -v grep
+	a=($(ps aux | grep "$THISSCRIPT daemon" | grep -v grep))
+	echo ${a[1]}
 }
 
 killDaemon()
 {
 	if $DEBUG; then echo "killDaemon"; fi
-	a=($(getProcess))
-	process=${a[1]}
+	process=$(getProcess)
+	#a=($(getProcess))
+	#process=${a[1]}
 	if $DEBUG; then
 		getProcess
 		echotd "Killing $process"
 	fi
 	while [[ ! -z "$process" ]]; do
 		kill $process
-		sleep 2s
-		a=($(getProcess))
-		process=${a[1]}
+		doSleep 2s
+		#a=($(getProcess))
+		#process=${a[1]}
+		process=$(getProcess)
 	done
 }
 
@@ -823,19 +834,6 @@ doCreateStartupScript()
 				fi
 				doCreateLogRotate
 				if [[ -e "$INITSCRIPT" ]]; then
-					if ! (which zenity > /dev/null); then
-						echo "Attempting to install zenity to display messages in daemon mode."
-						instfail=false
-						if ! (sudo apt install zenity); then
-							instfail=true
-						fi
-						if $instfail; then
-							echo "Package zenity not installed. You will need to install it yourself if you want to be notified when daemon mode starts and finshes backing up."
-						else
-							echo "Package installed. You will be notified when daemon mode starts and finishes backing up."
-						fi
-						echo
-					fi
 					sudo update-rc.d "$SCRIPTNAME" defaults
 					echo "Startup script created."
 					echo "You can start and stop the service anytime with sudo service $SCRIPTNAME start|stop"
@@ -893,7 +891,7 @@ doInit()
 	if $DEBUG; then echo "doInit \"$@\""; fi
 	trap killed SIGINT SIGTERM SIGHUP
 
-	VERSION="2.1"
+	VERSION="2.1.1"
 	THISSCRIPT=$(which "$0")
 	VERSIONURL="https://github.com/hp6000x/backup.sh/raw/master/VERSION"
 	SCRIPTURL="https://github.com/hp6000x/backup.sh/raw/master/backup.sh"
@@ -902,10 +900,11 @@ doInit()
 	isBackingUp=false
 	isSettingUp=false
 	isDaemonMode=false
+	isSleeping=false
 
 	defCONFFILE="/etc/hp6000_backup.conf"
 #	defCONFFILE="/etc/hp6000_backup_$VERSION.conf"
-	
+
 	#scan arguments for config file
 	idx=0
 	target=0
@@ -914,7 +913,7 @@ doInit()
 		idx=$((idx+1))
 		if [[ "${i:0:9}" = "--config=" ]]; then #and see if one starts with --config=
 			CONFFILE=${i#*=} # if we find it, set CONFFILE to the rest of the argument
-		elif [[ "${i:0:8}" = "--config" ]]; then #how about if it starts with just --config
+		elif [[ "$i" = "--config" ]]; then #how about if the whole argument is --config?
 			target=$((idx+1)) # next argument is the value we want, so set the target to catch it next time through the loop
 		elif [[ "$idx" = "$target" ]]; then #hit the target set by the previous argument
 			CONFFILE="$i" # so set CONFFILE to the current argument
