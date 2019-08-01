@@ -22,7 +22,7 @@ Commands:
 
 Options:
 
-	-v				Give more details when running backups or displaying info
+	-v					Give more details when running backups or displaying info
 	--config={path to config file}	Use specified config file instead of default.
 
 Note, if you specify an alternate config which does not exist, you will automatically be taken
