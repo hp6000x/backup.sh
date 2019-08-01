@@ -4,8 +4,9 @@
 #
 #CHANGELOG
 #
-#	v2.0		- Added config files, changed order of operation, split code into functions, added update and reconfiguration options, generally tidied up and improved code, fixed some bugs
-#	v1 to v1.8	- Original backup.sh, improved over time
+#	v2.1	(Jul 19)	Added daemon mode, as well as the ability to create and remove daemon mode startup scripts. Also more bug fixes and code tidying
+#	v2.0	(Jul 19)	Added config files, changed order of operation, split code into functions, added update and reconfiguration options, generally tidied up and improved code, fixed some bugs
+#	v1 to v1.8	(Mar to Jun 19)	Original backup.sh, improved over time
 #
 #error codes
 # 1 - Abort signal SIGINT SIGTERM or SIGHUP received. 
@@ -28,21 +29,24 @@
 #18 - Failed to create config file
 #19 - Failed to get sudo credentials when requested
 #20 - Unrecognised command in command line
+#21 - Failed to create init.d script
+#22 - Failed to remove init.d script
+#23 - Function not yet implemented
 
-VERSION="2.0"
-THISSCRIPT=$(which "$0")
-VERSIONURL="https://github.com/hp6000x/backup.sh/raw/master/VERSION"
-SCRIPTURL="https://github.com/hp6000x/backup.sh/raw/master/backup.sh"
-defCONFFILE="/etc/hp6000_backup.conf"
-isBackingUp=false
-verbose=false
 DEBUG=false
 
+doExit()
+{
+	if ! $isDaemonMode; then
+		exit $1
+	fi
+}
+
 #call me when backup fails :-)
-errorexit() {
-	if $DEBUG; then echo "errorexit \"$1\" \"$2\""; fi
+errorExit() {
+	if $DEBUG; then echo "errorExit \"$1\" \"$2\""; fi
 	echo "Backup failed at $(date)" >&2
-	exit $1
+	doExit $1
 }
 
 #output time and text, for logging
@@ -54,8 +58,12 @@ echotd() {
 #trap shutdown and termination signals, contains a super secret easter egg. Are you quick enough?
 killed() {
 	if $DEBUG; then 
-		if $isBackingUp; then
-			echo "Received SIGINT, SIGTERM or SIGHUP at $(date)"
+		sharpshooter=true
+		for a in $isBackingUp $isSettingUp $isDaemonMode; do
+			$a && sharpshooter=false
+		done
+		if ! $sharpshooter ; then
+			echotd "Received SIGINT, SIGTERM or SIGHUP"
 		else
 			echo "Shot through the heart, and you're to blame. Darlin' you give love..."
 			sleep 3s
@@ -67,6 +75,14 @@ killed() {
 	fi
 	if $isBackingUp; then
 		echo "Backup aborted at $(date)" >&2
+	elif $isDaemonMode; then
+		echo "Stopping daemon at $(date)"
+		exit 0
+	elif $isSettingUp; then
+		echo "Setup aborted."
+		if [[ -e "$tmpname" ]]; then
+			rm "$tmpname"
+		fi
 	else
 		echo "Aborting"
 	fi
@@ -74,9 +90,9 @@ killed() {
 }
 
 #compare two version numbers using sort. Returns true if first value is greater than the second.
-version_gt()
+isGreater()
 {
-	if $DEBUG; then echo "version_gt \"$1\" \"$2\""; fi
+	if $DEBUG; then echo "isGreater \"$1\" \"$2\""; fi
 	test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
 }
 
@@ -85,6 +101,13 @@ configEcho()
 {
 	if $DEBUG; then echo "configEcho \"$1\""; fi
 	echo "$1" >> "$tmpname" 
+}
+
+sudoFail()
+{
+	if $DEBUG; then echo "sudoFail"; fi
+	echo "Failed to get sudo credentials. Exiting."
+	doExit 19
 }
 
 displayInfo()
@@ -99,11 +122,9 @@ displayInfo()
 	echo "Commands:"
 	echo "	[e]nable	Enable the daily automated backup. (Uses sudo)"
 	echo "	[d]isable	Disable the daily automated backup. (Uses sudo)"
-#Coming in version 2.1
-#	echo "	daemon		Sit in daemon mode, waiting for UUID to connect, then back up, wait for disconnect and repeat ad infinitum."
-#	echo "				This command is meant to be used as a startup job in your Desktop environment. No logging occurs in daemon mode."
-#	echo "	[c]reate	Create init.d script to launch daemon mode at startup."
-#	echo "	destro[y]	Remove init.d script which launches daemon mode at startup
+	echo "	[c]reate	Create init.d script to launch daemon mode at startup. (Uses sudo)"
+	echo "	destro[y]	Remove init.d script which launches daemon mode at startup. (Uses sudo)"
+	echo "		NOTE: Daemon mode is not intended for permanently connected backup devices."
 	echo "	[r]un		Run a backup job. (Must be run as root)"
 	echo "	[u]pdate	Checks github for new version and updates as necessary."
 	echo "	[s]etup		Create a new config file (either in the default of $defCONFFILE or where specified with --config, may require sudo)."
@@ -137,153 +158,246 @@ displayInfo()
 setDefaults()
 {
 	if $DEBUG; then echo "setDefaults"; fi
-	defBACKUPROOT="/mnt/archive"
+	defUUID="null"
+	defBACKUPROOT="/mnt/backup"
 	defBACKUPDIR="backups"
 	defBACKUPSRC="/home"
 	defEXCLUDES=".cache"
-	defSCRIPTNAME="backupv2"
-	defRSYNCCMD="$(which rsync) -aAXogu --delete --ignore-errors"
+	defSCRIPTNAME="backup"
+	defRSYNCCMD="$(which rsync) -aAEXu --delete --ignore-errors"
 	defUNMOUNTAFTER=true
 }
 
 doCreateConfig()
 {
 	if $DEBUG; then echo "doCreateConfig"; fi
+	isSettingUp=true
 	echo "Creating new config file at $CONFFILE."
-	#First create a temporary config file
-	tmpname="/tmp/$defSCRIPTNAME-config"
-	if [[ -e "$tmpname" ]]; then
-	  rm "$tmpname"
-	fi
-	touch "$tmpname" > /dev/null 2>&1
-	#Get the UUID of the backup volume
-	echo "Please connect your backup device now and hit ENTER"
-	echo "If it isn't formatted and ready for use, you'll need to take care of that before you continue."
-	echo "If it's already connected, unmount and disconnect it, then reconnect"
-	read dummy
-	UUID="null"
-	while ! (blkid | grep -q "$UUID"); do
-		clear
-		blkid
-		idstr=($(blkid | tail -n 1)) #store the last line of blkid's output in an array
-		a="${idstr[2]#*=}" #get everything after the "=" from the third item in the array
-		a="${a#\"}" #strip out the leading...
-		defUUID="${a%\"}" #...and trailing quotes
-		echo
-		echo "This is a list of attached filesystems. Please enter the UUID of your backup device."
-		echo "Hit ENTER for $defUUID, otherwise copy and paste the UUID you want and hit ENTER."
-		read -r UUID
-		if [[ -z "$UUID" ]]; then
-			UUID="$defUUID"
+	echo "We will need to use sudo to run the blkid command and edit default config locations, please enter your password if prompted."
+	if (sudo true); then
+		#First create a temporary config file
+		tmpname="$(tempfile)"
+		if [[ -e "$tmpname" ]]; then
+			rm "$tmpname"
 		fi
-		if (blkid | grep -q "$UUID"); then
-			configEcho "UUID=\"$UUID\""
+		touch "$tmpname"
+		configEcho "# backup.sh $VERSION configuration file"
+		configEcho "# Created $(date) by $USER"
+		configEcho "# Do not edit manually, use $THISSCRIPT setup --config=\"$CONFFILE\" to configure."
+		configEcho ""
+		#Get the UUID of the backup volume
+		echo "Please connect your backup device now and hit ENTER"
+		echo "If it isn't formatted and ready for use, you'll need to take care of that before you continue."
+		echo "If it's already connected, unmount and disconnect it, then reconnect"
+		read dummy
+		echo "Waiting ten seconds for file system shenanigans to sort themselves out..."
+		sleep 10s
+		if [[ "$defUUID" = "null" ]]; then #if we don't already have a UUID to use as default, get the last mounted device's UUID
+			a=($(sudo blkid | tail -n 1)) #store the last line of blkid's output in an array
+			a[2]="${a[2]#*=}" #get everything after the "=" from the third item in the array
+			a[2]="${a[2]#\"}" #strip out the leading...
+			defUUID="${a[2]%\"}" #...and trailing quotes
+		fi
+		UUID="null"
+		while ! (sudo blkid | grep -q "$UUID"); do
+			if $DEBUG; then echo "UUID=$UUID defUUID=$defUUID"; fi
+			clear
+			sudo blkid
+			echo
+			echo "This is a list of attached filesystems. Please enter the UUID of your backup device."
+			echo "Leave blank for $defUUID, otherwise copy and paste the UUID you want and hit ENTER."
+			read -r UUID
+			if [[ -z "$UUID" ]]; then
+				UUID="$defUUID"
+			fi
+			if ! (sudo blkid | grep -q "$UUID"); then
+				echo "Couldn't find UUID $UUID in the device list. Is the device connected? Please hit ENTER to try again."
+				read dummy
+			fi
+		done
+		configEcho "UUID=\"$UUID\""
+		#Get the mount point BACKUPROOT
+		echo "Please enter the mount point for the backup volume and press ENTER."
+		echo "Default is $defBACKUPROOT"
+		read -r BACKUPROOT
+		if [[ -z "$BACKUPROOT" ]]; then
+			BACKUPROOT="$defBACKUPROOT"
+		fi
+		configEcho "BACKUPROOT=\"$BACKUPROOT\""
+		#Get the backup folder BACKUPDIR
+		echo "Please enter the backup subdirectory name and press ENTER"
+		echo "Default is $defBACKUPDIR"
+		read -r BACKUPDIR
+		if [[ -z "$BACKUPDIR" ]]; then
+			BACKUPDIR="$defBACKUPDIR"
+		fi
+		configEcho "BACKUPDIR=\"$BACKUPDIR\""
+		#Get the source folders BACKUPSRC
+		echo "Please enter a space-separated list of folders to back up, and press ENTER."
+		echo "Default is $defBACKUPSRC"
+		read -r BACKUPSRC
+		if [[ -z "$BACKUPSRC" ]]; then
+			BACKUPSRC="$defBACKUPSRC"
+		fi
+		configEcho "BACKUPSRC=\"$BACKUPSRC\""
+		#Get exclude list EXCLUDES
+		echo "Please enter a space-separated list of keywords to exclude from the folder list, and press ENTER."
+		echo "Default is $defEXCLUDES"
+		read -r EXCLUDES
+		if [[ -z "$EXCLUDES" ]]; then
+			EXCLUDES="$defEXCLUDES"
+		fi
+		configEcho "EXCLUDES=\"$EXCLUDES\""
+		#Get script name SCRIPTNAME
+		echo "Please enter the default script name and press ENTER. This will be used to name the log and script files, and the logrotate config file."
+		echo "Warning: Things won't work properly if you add an extension to the filename. So, no full stops, just the file name."
+		echo "Default is $defSCRIPTNAME"
+		read -r SCRIPTNAME
+		if [[ -z "$SCRIPTNAME" ]]; then
+			SCRIPTNAME="$defSCRIPTNAME"
+		fi
+		configEcho "SCRIPTNAME=\"$SCRIPTNAME\""
+		#Get rsync command options RSYNCCMD
+		echo "Please enter the command line used to execute rsync and press ENTER. It's highly recommended you stick to the default here."
+		echo "Default is $defRSYNCCMD"
+		read -r RSYNCCMD
+		if [[ -z "$RSYNCCMD" ]]; then
+			RSYNCCMD="$defRSYNCCMD"
+		fi
+		configEcho "RSYNCCMD=\"$RSYNCCMD\""
+		#Get unmount flag UNMOUNTAFTER
+		UNMOUNTAFTER=""
+		while [[ -z "$UNMOUNTAFTER" ]]; do 
+			echo "Do you want to unmount the backup volume after each backup? (Y/N)"
+			if $defUNMOUNTAFTER; then
+				echo "Default is \"Y\""
+			else
+				echo "Default is \"N\""
+			fi
+			read -r -n 1 inkey
+			case $inkey in
+				("y"|"Y")	UNMOUNTAFTER=true;;
+				("n"|"N")	UNMOUNTAFTER=false;;
+				("")		if $defUNMOUNTAFTER; then
+								UNMOUNTAFTER=true
+							else
+								UNMOUNTAFTER=false
+							fi;;
+			esac
+			echo
+		done
+		configEcho "UNMOUNTAFTER=\"$UNMOUNTAFTER\""
+		if ! (touch "$CONFFILE.tmpxyz" > /dev/null 2>&1); then #can we edit files in the folder where CONFFILE is stored?
+			mvcmd="sudo mv" #if not, we need sudo to do the move
+			rmcmd="sudo rm"
 		else
-			echo "Couldn't find UUID $UUID in the device list. Please hit ENTER to try again."
-			read dummy
+			rm "$CONFFILE.tmpxyz" #otherwise, remove the temp file we created
+			mvcmd="mv" #no sudo needed
+			rmcmd="rm"
 		fi
-	done
-	#Write the part which gets the device URI
-	configEcho "a=(\$(blkid | grep \$UUID))" #search block ids for backup device UUID and place device info into an array
-	configEcho "DEVICEURI=\${a[0]::-1}" #first item in the array, minus the trailing ":" is the uri of the device with the matching UUID
-	configEcho "unset a"
-	#Get the mount point BACKUPROOT
-	echo "Please enter the mount point for the backup volume and press ENTER."
-	echo "Default is $defBACKUPROOT"
-	read -r BACKUPROOT
-	if [[ -z "$BACKUPROOT" ]]; then
-		BACKUPROOT="$defBACKUPROOT"
-	fi
-	configEcho "BACKUPROOT=\"$BACKUPROOT\""
-	#Get the backup folder BACKUPDIR
-	echo "Please enter the backup subdirectory name and press ENTER"
-	echo "Default is $defBACKUPDIR"
-	read -r BACKUPDIR
-	if [[ -z "$BACKUPDIR" ]]; then
-		BACKUPDIR="$defBACKUPDIR"
-	fi
-	configEcho "BACKUPDIR=\"$BACKUPDIR\""
-	#Get the source folders BACKUPSRC
-	echo "Please enter a space-separated list of folders to back up, and press ENTER."
-	echo "Default is $defBACKUPSRC"
-	read -r BACKUPSRC
-	if [[ -z "$BACKUPSRC" ]]; then
-		BACKUPSRC="$defBACKUPSRC"
-	fi
-	configEcho "BACKUPSRC=\"$BACKUPSRC\""
-	#Get exclude list EXCLUDES
-	echo "Please enter a space-separated list of keywords to exclude from the folder list, and press ENTER."
-	echo "Default is $defEXCLUDES"
-	read -r EXCLUDES
-	if [[ -z "$EXCLUDES" ]]; then
-		EXCLUDES="$defEXCLUDES"
-	fi
-	configEcho "EXCLUDES=\"$EXCLUDES\""
-	#Get script name SCRIPTNAME
-	echo "Please enter the default script name and press ENTER. This will be used to name the log and script files, and the logrotate config file."
-	echo "Default is $defSCRIPTNAME"
-	read -r SCRIPTNAME
-	if [[ -z "$SCRIPTNAME" ]]; then
-		SCRIPTNAME="$defSCRIPTNAME"
-	fi
-	configEcho "SCRIPTNAME=\"$SCRIPTNAME\""
-	#Write the part which sets BACKUPLOG, SCRIPTFILE and LOGCONFIG
-	configEcho "BACKUPLOG=\"/var/log/\$SCRIPTNAME.log\""
-	configEcho "SCRIPTFILE=\"/etc/cron.daily/\$SCRIPTNAME\""
-	configEcho "LOGCONFIG=\"/etc/logrotate.d/\$SCRIPTNAME\""
-	#Get rsync command options RSYNCCMD
-	echo "Please enter the default rsync command line and press ENTER. It's highly recommended you stick to the default here."
-	echo "Default is $defRSYNCCMD"
-	read -r RSYNCCMD
-	if [[ -z "$RSYNCCMD" ]]; then
-		RSYNCCMD="$defRSYNCCMD"
-	fi
-	configEcho "RSYNCCMD=\"$RSYNCCMD\""
-	#Get unmount flag UNMOUNTAFTER
-	UNMOUNTAFTER=""
-	while [[ -z "$UNMOUNTAFTER" ]]; do 
-		echo "Do you want to unmount the backup volume after each backup? (Y/N)"
-		if $defUNMOUNTAFTER; then
-			echo "Default is \"Y\""
+		$rmcmd "$CONFFILE" #remove the old config file. We've already backed it up, so it's fine.
+		$mvcmd "$tmpname" "$CONFFILE" #move the temp config file to CONFFILE
+		if [[ -e "$CONFFILE" ]]; then
+			echo "Config file $CONFFILE created successfully."
+			justcreated=true
 		else
-			echo "Default is \"N\""
+			echo "Failed to create config file $CONFFILE."
+			doExit 18
 		fi
-		read -r -n 1 inkey
-		case $inkey in
-			("y"|"Y")	UNMOUNTAFTER=true;;
-			("n"|"N")	UNMOUNTAFTER=false;;
-			("")		if $defUNMOUNTAFTER; then
-							UNMOUNTAFTER=true
-						else
-							UNMOUNTAFTER=false
-						fi;;
-		esac
-		echo
-	done
-	configEcho "UNMOUNTAFTER=\"$UNMOUNTAFTER\""
-	if ! (touch "$CONFFILE.tmpxyz" > /dev/null 2>&1); then #can we edit files in the folder where CONFFILE is stored?
-		mvcmd="sudo mv" #if not, we need sudo to do the move
 	else
-		rm "$CONFFILE.tmpxyz" #otherwise, remove the temp file we created
-		mvcmd="mv" #no sudo needed
+		sudoFail
 	fi
-	$mvcmd "$tmpname" "$CONFFILE" #move the temp config file to CONFFILE
+	isSettingUp=false
+}
+
+doReconfig()
+{
+	if $DEBUG; then echo "doReconfig"; fi
+
+	if [[ ! -w "$(dirname \"$CONFFILE\")" ]]; then #test for write access to the directory where CONFFILE is stored
+		echo "We may need to use sudo to manipulate the config file. Please enter your password if asked."
+		if (sudo true); then
+			rmcmd="sudo rm"
+			cpcmd="sudo cp"
+		else
+			sudoFail
+		fi
+	else
+		rmcmd="rm"
+		cpcmd="cp"
+	fi
+
 	if [[ -e "$CONFFILE" ]]; then
-		echo "Config file $CONFFILE created successfully."
-	else
-		echo "Failed to create config file $CONFFILE."
-		exit 18
+		if [[ -e "$CONFFILE.bak" ]]; then
+			$rmcmd "$CONFFILE.bak"
+		fi
+		$cpcmd "$CONFFILE" "$CONFFILE.bak"
+		if [[ -e "$CONFFILE.bak" ]]; then
+			echo "Old config file saved to $CONFFILE.bak"
+		else
+			isSettingUp=true
+			echo "Could not create backup of config file. Hit ENTER to proceed anyway, CTRL-C to cancel"
+			read dummy
+			isSettingUp=false
+		fi
 	fi
+	
+	if ! $justcreated; then
+		defUUID="$UUID"
+		defBACKUPROOT="$BACKUPROOT"
+		defBACKUPDIR="$BACKUPDIR"
+		defBACKUPSRC="$BACKUPSRC"
+		defEXCLUDES="$EXCLUDES"
+		defSCRIPTNAME="$SCRIPTNAME"
+		defRSYNCCMD="$RSYNCCMD"
+		defUNMOUNTAFTER=$UNMOUNTAFTER
+
+		doCreateConfig
+	fi
+}
+
+getURIFromUUID()
+{
+	if $DEBUG; then echo "getURIFromUUID"; fi
+	#Set device URI from UUID
+	#a=($(sudo blkid | grep \$UUID)) #search block ids for backup device UUID and place device info into an array
+	#echo "${a[0]::-1}" #first item in the array, minus the trailing ":" is the uri of the device with the matching UUID
+	#unset a
+	sudo blkid | grep $UUID | cut -d: -f1 # search output of blkid for UUID. First field, delimited by ":" is device URI
 }
 
 doLoadConfig()
 {
 	if $DEBUG; then echo "doLoadConfig"; fi
 	if [[ ! -e "$CONFFILE" ]]; then #is the config file missing?
+		echo "Config file not found at $CONFFILE"
 		setDefaults
 		doCreateConfig
 	fi
 	. "$CONFFILE" #execute config file to set config options	
+	
+	DEVICEURI="$(getURIFromUUID)"
+	
+	#Set BACKUPLOG, SCRIPTFILE, LOGCONFIG and INITSCRIPT from SCRIPTNAME
+	BACKUPLOG="/var/log/$SCRIPTNAME.log"
+	SCRIPTFILE="/etc/cron.daily/$SCRIPTNAME"
+	LOGCONFIG="/etc/logrotate.d/$SCRIPTNAME"
+	INITSCRIPT="/etc/init.d/$SCRIPTNAME"
+	#INITSCRIPT="/etc/profile.d/$SCRIPTNAME"
+	
+	#Check config file version
+	a=($(head -n 1 "$CONFFILE")) #Get the first line of the config file into an array. 
+	#Versions newer than 2.0 have the version number as the third element. 
+	#Version 2.0 has no version number, so if none is present, assume 2.0
+	v="${a[2]}"
+	if [[ -z "$v" ]]; then 
+		v="2.0"
+	fi
+	if isGreater "2.1" "$v"; then #2.1 is the latest version with changes to the config file, 
+								#so check configs against that version rather than the current one
+		echo "Config file out of date. Reconfiguring."
+		doReconfig
+	fi
 }
 
 getArguments()
@@ -294,17 +408,16 @@ getArguments()
 		displayInfo
 	elif [[ "${command:0:1}" = "-" ]]; then
 		echo "Unrecognised command: $command. Type $THISSCRIPT help for help"
-		exit 20
+		doExit 20
 	fi
 	shift
-	verbose=false
 	while [[ ! -z "$1" ]]; do
 		i="$1"
 		if [[ "${i:0:8}" != "--config" ]]; then #we've already processed --config, let's just process everything else
 			case "$i" in
 				("-v")			verbose=true;;
-				("-h"|"--help")	displayInfo;;
-				(*)				echo "Unknown option $i. Type $THISSCRIPT help for help"; exit 9;;
+				("-h"|"--help")	displayInfo; doExit 0;;
+				(*)				echo "Unknown option $i. Type $THISSCRIPT help for help"; doExit 9;;
 			esac
 		fi
 		shift
@@ -316,8 +429,32 @@ getSudoPassword()
 	if $DEBUG; then echo "getSudoPassword"; fi
 	echo "We need to use sudo to enable or disable automated backups. Please enter your password if asked."
 	if ! (sudo true); then
-		echo "Failed to get sudo. Exiting."
-		exit 19
+		sudoFail
+	fi
+}
+
+doCreateLogRotate()
+{
+	#setting up logrotate
+	if [[ -a "$LOGCONFIG" ]]; then
+		echo "Overwriting logrotate config at $LOGCONFIG..."
+	else
+		echo "Creating logrotate config at $LOGCONFIG..."
+	fi
+	cat <<- _EOF_ | sudo tee "$LOGCONFIG" > /dev/null #the following lines, ending with _EOF_ tell logrotate how to rotate the backup log file
+		$BACKUPLOG {
+		  rotate 6
+		  monthly
+		  compress
+		  missingok
+		  notifempty
+		}
+	_EOF_
+	if [[ -a "$LOGCONFIG" ]]; then
+		echo "Finished."
+	else
+		echo "Failed to create logrotate config at $LOGCONFIG." >&2
+		doExit 14
 	fi
 }
 
@@ -340,7 +477,7 @@ doEnableBackups()
 		cat <<- _EOF_ | sudo tee "$SCRIPTFILE" > /dev/null #the following lines, ending with _EOF_ tell the launcher script to launch this script
 			#!/bin/bash
 			if [[ ! -a "$BACKUPLOG" ]]; then
-			  echo "Log created: \$(date)" > "$BACKUPLOG"
+			  echo "Log created: \$(date) by $THISSCRIPT" > "$BACKUPLOG"
 			fi
 			echo >> "$BACKUPLOG"
 			$nicebin -n20 "$THISSCRIPT" $parm >> "$BACKUPLOG" 2>&1
@@ -348,34 +485,14 @@ doEnableBackups()
 		if [[ -a "$SCRIPTFILE" ]]; then
 			sudo chmod a+x "$SCRIPTFILE" #make the launcher script executable
 			echo "Finished."
-			#setting up logrotate
-			if [[ -a "$LOGCONFIG" ]]; then
-				echo "Overwriting logrotate config at $LOGCONFIG..."
-			else
-				echo "Creating logrotate config at $LOGCONFIG..."
-			fi
-			cat <<- _EOF_ | sudo tee "$LOGCONFIG" > /dev/null #the following lines, ending with _EOF_ tell logrotate how to rotate the backup log file
-				$BACKUPLOG {
-				  rotate 6
-				  monthly
-				  compress
-				  missingok
-				  notifempty
-				}
-			_EOF_
-			if [[ -a "$LOGCONFIG" ]]; then
-				echo "Finished."
-			else
-				echo "Failed to create logrotate config at $LOGCONFIG." >&2
-				exit 14
-			fi
+			doCreateLogRotate
 		else
 			echo "Failed to create launcher at $SCRIPTFILE." >&2
-			exit 3
+			doExit 3
 		fi
 	else
 		echo "Package logrotate not installed. Please install it from the repository and run the install again."
-		exit 13
+		doExit 13
 	fi
 }
 
@@ -409,7 +526,8 @@ doDisableBackups()
 	fi
 	if [[ $exitval -gt 0 ]]; then
 		echo "Exiting due to file removal errors." >&2
-		exit $exitval
+		doExit $exitval
+		return $exitval
 	fi
 
 }
@@ -417,40 +535,54 @@ doDisableBackups()
 doMountVolume()
 {
 	if $DEBUG; then echo "doMountVolume"; fi
+	if [[ -z "$DEVICEURI" ]]; then
+		DEVICEURI="$(getURIFromUUID)"
+	fi
+	#a=($(lsblk | grep q "$BACKUPROOT" > /dev/null 2>&1)) #search output of lsblk for BACKUPROOT and save results in an array
 	#Creating the mount point
-	a=($(lsblk | grep q "$BACKUPROOT" > /dev/null 2>&1)) #search output of lsblk for BACKUPROOT and save results in an array
 	if [[ ! -d "$BACKUPROOT" ]]; then # Does the mount point already exist?
 		echotd "Creating backup volume mount point..."  # if not, go ahead and create it
 		if ! (mkdir -p "$BACKUPROOT" > /dev/null 2>&1); then #create mountpoint and check for success
 			# If mount point creation fails, display a message then exit
 			echotd "Could not create mount point: $BACKUPROOT. Exiting." >&2
-			errorexit 4
+			errorExit 4
+			return 4
 		fi
-	elif [[ ! -z "${a[6]}" ]]; then #if the mountpoint exists, and the output of our earlier search is not empty, something is mounted there
-		b=${a[0]:-4} #last four chars of device URI for device mounted at BACKUPROOT. Device URI is in first element of array "a" set earlier
-		c=${DEVICEURI:-4} #last four chars of our backup device URI
-		if [[ "$b" != "$c" ]]; then #  If BACKUPROOT's device URI and DEVICEURI do not match, something else is mounted at BACKUPROOT
+	elif [[ ! -z $(lsblk -lp | grep $DEVICEURI | awk '{print $NF})') ]]; then #if the mountpoint exists, and a search for the last 3 chars of DEVICEURI in lsblk is nonzero, something is mounted at the mount point
+		a=$(lsblk -lp | grep $BACKUPROOT) # get info about whatever is mounted at BACKUPROOT
+		a=${a/ */} #everything before the first space in that info is the URI of the device
+		#b=${a[0]:-3} #last three chars of device URI for device mounted at BACKUPROOT. Device URI is in first element of array "a"
+		#c=${DEVICEURI:-3} #last three chars of our backup device URI
+		if [[ "$b" != "$DEVICEURI" ]]; then #  If BACKUPROOT's device URI and DEVICEURI do not match, something else is mounted at BACKUPROOT
 			echotd "Something else mounted at $BACKUPROOT. Unmounting"
+			sleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
 			if ! (umount "$BACKUPROOT" > /dev/null 2>&1); then #unmount it and check for success
 				#failed to unmount, so display a message and exit
 				echotd "Could not unmount $BACKUPROOT. Exiting."
-				errorexit 17
+				errorExit 17
+				return 17
 			fi
 		fi
 	fi 
 
 	#Mounting the backup volume
 	if ! (lsblk | grep -q "$BACKUPROOT" > /dev/null); then #If nothing is mounted to BACKUPROOT
-		a=($(lsblk -l | grep "${DEVICEURI:(-4)}")) #search all block devices, for last 4 chars of uri $DEVICEURI, and put info into an array
-		backupmounted=${a[6]} # get the 7th item from the array, it's the mountpoint of the backup volume if there is one
-		unset a
+		#a=($(lsblk -lp | grep $DEVICEURI)) #search all block devices, for last 3 chars of uri $DEVICEURI, and put info into an array
+		backupmounted=$(lsblk -p | grep $DEVICEURI | awk '{print $NF}') #search block devices for DEVICEURI and store mount point in a string
+		#backupmounted=${a[6]} # get the 7th item from the array, it's the mountpoint of the backup volume if there is one
+		#unset a
 		if [[ -n "$backupmounted" ]]; then #if the volume has a mount point, it is mounted, so...
-			echotd "Backup volume with UUID $UUID mounted elsewhere. Unmounting"
-			if ! (umount "$DEVICEURI" > /dev/null 2>&1); then #unmount it and check for success
-				# Failed to unmount, so display message and exit
-				echotd "Could not unmount backup volume $DEVICEURI. Exiting" >&2
-				echotd "$backupmounted" >&2
-				errorexit 10
+			echotd "Backup volume $DEVICEURI mounted to $backupmounted. Unmounting"
+			sleep 5s #wait for 5 seconds just in case linux is still assimilating this volume :-)
+			if ! (umount "$backupmounted" > /dev/null 2>&1); then #unmount it and check for success
+				if ! $isDaemonMode; then #not in daemon mode, exit, in daemon mode, carry on
+					# Failed to unmount, so display message and exit
+					echotd "Could not unmount backup volume $DEVICEURI. Exiting" >&2
+					echotd "$backupmounted" >&2
+					errorExit 10
+				else
+					echotd "Could not unmount $DEVICEURI. Continuing anyway,"
+				fi
 			fi
 		fi
 		echotd "Mounting backup volume to $BACKUPROOT"
@@ -468,19 +600,24 @@ doMountVolume()
 							echotd "Could not unmount backup volume at $BACKUPROOT" >&2
 						fi
 					fi
-					errorexit 14
+					errorExit 14
+					return 14
 				fi
 			fi
+			return 0
 		else #If mount fails, attempt to mount by device address
 			echotd "Could not mount device with UUID $UUID to $BACKUPROOT. Attempting to mount by URI $DEVICEURI" 
 			if (mount "$DEVICEURI" "$BACKUPROOT" > /dev/null 2>&1); then # Mount backup volume by device URI and check for success
 				echotd "Backup volume mounted by device URI successfully." 
+				return 0
 			else #If mount by URI fails, add message to log and exit
 				echotd "Could not mount device with URI $DEVICEURI. Exiting." >&2
-				errorexit 11
+				errorExit 11
+				return 11
 			fi
 		fi
 	fi
+	return 0
 }
 
 doUnmountVolume()
@@ -494,7 +631,7 @@ doUnmountVolume()
 	else #Unmount failed
 		echotd "Could not unmount backup volume at $BACKUPROOT" >&2
 		echo "Backup finished at $(date) with errors" 
-		exit 10
+		doExit 10
 	fi
 
 	#Removing the mount point
@@ -504,9 +641,18 @@ doUnmountVolume()
 		else 
 			echotd "Could not remove mount point $BACKUPROOT" >&2 # It failed, so output fail message
 			echo "Backup finished at $(date) with errors" 
-			exit 12 
+			doExit 12 
 		fi
 	fi
+}
+
+doInitBackup()
+{
+	echo "Starting backup: $(date)"
+	if $DEBUG;
+		then echo "Debugging v$VERSION"
+	fi
+	echo "Backing up $BACKUPSRC to $BACKUPROOT/$BACKUPDIR ($DEVICEURI)"
 }
 
 doBackup()
@@ -546,24 +692,21 @@ doUpdateScript()
 	if (wget -q "$VERSIONURL" > /dev/null 2>&1); then #get latest release version number from github 
 		curVersion=$(cat "VERSION") #assign it to a variable
 		if $DEBUG; then echo "VERSION=$VERSION, curVersion=$curVersion"; fi
-		if version_gt "$curVersion" "$VERSION"; then # how to test $curVersion -gt $VERSION with decimals
+		if isGreater "$curVersion" "$VERSION"; then # how to test $curVersion -gt $VERSION with decimals
 			echo "New version $curVersion available. You are on $VERSION. Hit ENTER to update or CTRL-C to abort."
-			if (read dummy); then
-				if (wget -q "$SCRIPTURL" > /dev/null 2>&1); then #get the latest release of backup.sh from github
-					if [[ -e "$THISSCRIPT.bak" ]]; then
-						rm "$THISSCRIPT.bak" #remove old script backup
-					fi
-					mv "$THISSCRIPT" "$THISSCRIPT.bak" #back up current script
-					chmod 755 "backup.sh" #make the new script executable
-					mv "backup.sh" "$THISSCRIPT" #move the new script to the location and name of the current script
-					echo "Updated backup script. Check what's changed by opening $THISSCRIPT for editing, or going to https://github.com/hp6000x/backup.sh"
-					popd > /dev/null #return to previous directory
-					exit 0
-				else #download failed
-					echo "Could not get new script file from $SCRIPTURL. Is the repository still there?"
+			read dummy
+			if (wget -q "$SCRIPTURL" > /dev/null 2>&1); then #get the latest release of backup.sh from github
+				if [[ -e "$THISSCRIPT.bak" ]]; then
+					rm "$THISSCRIPT.bak" #remove old script backup
 				fi
-			else #update aborted with CTRL-C
-				echo "Version unchanged."
+				mv "$THISSCRIPT" "$THISSCRIPT.bak" #back up current script
+				chmod 755 "backup.sh" #make the new script executable
+				mv "backup.sh" "$THISSCRIPT" #move the new script to the location and name of the current script
+				echo "Updated backup script. Check what's changed by opening $THISSCRIPT for editing, or going to https://github.com/hp6000x/backup.sh"
+				popd > /dev/null #return to previous directory
+				doExit 0
+			else #download failed
+				echo "Could not get new script file from $SCRIPTURL. Is the repository still there?"
 			fi
 		elif [[ "$VERSION" = "$curVersion" ]]; then
 			echo "You are already on the latest version: $VERSION"
@@ -576,50 +719,193 @@ doUpdateScript()
 	popd > /dev/null #return to previous directory
 }
 
-doReconfig()
+daemonMode()
 {
-	if $DEBUG; then echo "doReconfig"; fi
-
-	if ! (touch "$CONFFILE.tmpxyz" > /dev/null 2>&1); then #test for write access to the directory where CONFFILE is stored
-		echo "We may need to use sudo to manipulate the config file. Please enter your password if asked."
-		if ! (sudo true); then
-			echo "Failed to get sudo. Exiting."
-			exit 19
+	if $DEBUG; then echo "daemonMode"; fi
+	isDaemonMode=true
+	echo "Starting daemon at $(date)"
+	while true; do #loop forever
+		while ! (blkid | grep -q "$UUID"); do #while UUID is not connected
+			if $DEBUG; then echotd "Waiting for device."; fi
+			sleep 30s
+		done
+		sleep 10s # it takes a few seconds for linux to set up the device after connecting.
+		if (blkid | grep -q "$UUID"); then #if UUID is connected
+			if $DEBUG; then echo "Device connected. Backing up."; fi
+			doInitBackup
+			if doMountVolume; then
+				isBackingUp=true
+				doBackup
+				doDone
+			fi
 		fi
-		rmcmd="sudo rm"
-		mvcmd="sudo mv"
-	else
-		rm "$CONFFILE.tmpxyz"
-		rmcmd="rm"
-		mvcmd="mv"
-	fi
+		while (blkid | grep -q "$UUID"); do #while UUID is connected
+			if $DEBUG; then echotd "Waiting for device disconnect."; fi
+			sleep 30s
+		done
+	done
+}
 
-	if [[ -e "$CONFFILE.bak" ]]; then
-		$rmcmd "$CONFFILE.bak"
+getProcess()
+{
+	if $DEBUG; then echo "getProcess"; fi
+	ps aux | grep "$THISSCRIPT daemon" | grep -v grep
+}
+
+killDaemon()
+{
+	if $DEBUG; then echo "killDaemon"; fi
+	a=($(getProcess))
+	process=${a[1]}
+	if $DEBUG; then
+		getProcess
+		echotd "Killing $process"
 	fi
-	$mvcmd "$CONFFILE" "$CONFFILE.bak"
-	if [[ -e "$CONFFILE.bak" ]]; then
-		echo "Old config file saved to $CONFFILE.bak"
+	while [[ ! -z "$process" ]]; do
+		kill $process
+		sleep 2s
+		a=($(getProcess))
+		process=${a[1]}
+	done
+}
+
+doCreateStartupScript()
+{
+	if $DEBUG; then echo "doCreateStartupScript"; fi
+	if (which apt > /dev/null); then
+		if [[ ! -e "$INITSCRIPT" ]]; then
+			echo "We need to use sudo to create init.d scripts. Please enter your password if asked."
+			if (sudo true); then
+				echo "Creating startup script $INITSCRIPT."
+				opt="daemon"
+				if $verbose; then 
+					opt="$opt -v"
+				fi
+				nicebin="$(which nice)"
+				cat <<- _EOF_  | sudo tee "$INITSCRIPT" > /dev/null 2>&1
+					#!/bin/bash
+					
+					### BEGIN INIT INFO
+					# Provides:          $SCRIPTNAME
+					# Required-Start:    \$local_fs \$syslog \$named \$time
+					# Required-Stop:     \$local_fs \$syslog \$named \$time
+					# Default-Start:     2 3 4 5
+					# Default-Stop:      0 1 6
+					# Short-Description: $SCRIPTNAME service
+					# Description:       Sits and waits for $UUID to be connected, then backs up and repeats
+					### END INIT INFO
+					
+					start() {
+					  echo "Starting $SCRIPTNAME"
+					  echo >> $BACKUPLOG
+					  /bin/bash -c "$THISSCRIPT $opt --config=$CONFFILE" >> $BACKUPLOG 2>&1 &
+					}
+
+					stop() {
+						echo "Stopping $SCRIPTNAME"
+						/bin/bash -c "$THISSCRIPT stop --config=$CONFFILE"
+					}
+					
+					# Carry out specific functions when asked to by the system
+					if [[ ! -e "$BACKUPLOG" ]]; then
+					  echo "Log created: \$(date) by \$0" > $BACKUPLOG
+					fi
+
+					case "\$1" in
+					  start)  	start;;
+					  stop)		stop;;
+					  *)  		echo "Usage: \$0 {start|stop}"
+					esac
+				_EOF_
+				sudo chmod 755 "$INITSCRIPT"
+				if [[ -d "/etc/rc.d" ]]; then
+					sudo ln -s "$INITSCRIPT" "/etc/rc.d/"
+				fi
+				doCreateLogRotate
+				if [[ -e "$INITSCRIPT" ]]; then
+					if ! (which zenity > /dev/null); then
+						echo "Attempting to install zenity to display messages in daemon mode."
+						instfail=false
+						if ! (sudo apt install zenity); then
+							instfail=true
+						fi
+						if $instfail; then
+							echo "Package zenity not installed. You will need to install it yourself if you want to be notified when daemon mode starts and finshes backing up."
+						else
+							echo "Package installed. You will be notified when daemon mode starts and finishes backing up."
+						fi
+						echo
+					fi
+					sudo update-rc.d "$SCRIPTNAME" defaults
+					echo "Startup script created."
+					echo "You can start and stop the service anytime with sudo service $SCRIPTNAME start|stop"
+					echo "Do you want to start the $SCRIPTNAME service now? (Y/n)"
+					read -r -s -n 1 inkey
+					case $inkey in
+						("Y"|"y"|"")	sudo service "$SCRIPTNAME" start;;
+						(*)				echo "Reboot for changes to take effect.";;
+					esac
+				else
+					echo "Could not create startup script."
+					doExit 21
+				fi
+			else
+				sudoFail
+			fi
+		else
+			echo "Startup service $INITSCRIPT already exists. Cannot create startup service."
+			echo "To avoid this, run $THISSCRIPT setup --config=\"$CONFFILE\" and change the value of SCRIPTNAME."
+		fi
 	else
-		echo "Could not create backup of config file. Hit ENTER to proceed anyway, CTRL-C to cancel"
-		read dummy
+		echo "Sorry. Debian based distros only. If you want to code init.d scripts for your distro, get in touch."
 	fi
-	
-	defBACKUPROOT="$BACKUPROOT"
-	defBACKUPDIR="$BACKUPDIR"
-	defBACKUPSRC="$BACKUPSRC"
-	defEXCLUDES="$EXCLUDES"
-	defSCRIPTNAME="$SCRIPTNAME"
-	defRSYNCCMD="$RSYNCCMD"
-	defUNMOUNTAFTER=$UNMOUNTAFTER
-	
-	doCreateConfig
+}
+
+doDestroyStartupScript()
+{
+	if $DEBUG; then echo "doDestroyStartupScript"; fi
+	echo "We need to use sudo to remove init.d scripts. Please enter your password if asked."
+	if (sudo true); then
+		#First stop the service
+		sudo "$INITSCRIPT" stop
+		#Okay, now we can remove it.
+		sudo update-rc.d -f \"$SCRIPTNAME\" remove
+		#Now remove the init.d script file.
+		echo "Removing startup script $INITSCRIPT."
+		sudo rm "$INITSCRIPT" > /dev/null 2>&1
+		a="/etc/rc.d/$(basename $INITSCRIPT)"
+		if [[ -e "$a" ]]; then
+			sudo rm "$a" > /dev/null/2>&1
+		fi
+		if [[ ! -e "$INITSCRIPT" ]] && [[ ! -e "$a" ]]; then
+			echo "Startup script removed."
+		else
+			echo "Could not remove startup script."
+			doExit 22
+		fi
+	else
+		sudoFail
+	fi
 }
 
 doInit()
 {
 	if $DEBUG; then echo "doInit \"$@\""; fi
 	trap killed SIGINT SIGTERM SIGHUP
+
+	VERSION="2.1"
+	THISSCRIPT=$(which "$0")
+	VERSIONURL="https://github.com/hp6000x/backup.sh/raw/master/VERSION"
+	SCRIPTURL="https://github.com/hp6000x/backup.sh/raw/master/backup.sh"
+	verbose=false
+	justcreated=false
+	isBackingUp=false
+	isSettingUp=false
+	isDaemonMode=false
+
+	defCONFFILE="/etc/hp6000_backup.conf"
+#	defCONFFILE="/etc/hp6000_backup_$VERSION.conf"
+	
 	#scan arguments for config file
 	idx=0
 	target=0
@@ -668,7 +954,7 @@ doInit()
 		echo "Run " >&2
 		echo "	$THISSCRIPT $x" >&2 
 		echo "to reconfigure." >&2
-		exit 2
+		doExit 2
 	fi
 }
 
@@ -678,32 +964,40 @@ doMain()
 	case $command in
 		("e"|"enable")				doEnableBackups;;
 		("d"|"disable")				doDisableBackups;;
-#		("daemon")					daemonMode;;
-#		("c"|"create")				doCreateStartupScript;;
-#		("y"|"destroy")				doDestroyStartupScript;;
+		("daemon")					if [[ "$(/usr/bin/id -u)" = "0" ]]; then
+										daemonMode
+									else
+										echo "Not running as root. Exiting"
+										doExit 5
+									fi;;
+		("stop")					if [[ "$(/usr/bin/id -u)" = "0" ]]; then
+										killDaemon
+									else
+										echo "Not running as root. Exiting"
+										doExit 5
+									fi;;
+		("c"|"create")				doCreateStartupScript;;
+		("y"|"destroy")				doDestroyStartupScript;;
 		("r"|"run")					if [[ "$(/usr/bin/id -u)" = "0" ]]; then
 										if [[ ! -z "$DEVICEURI" ]]; then #is the backup device connected?
-											echo "Starting backup: $(date)"
-											if $DEBUG;
-												then echo "Debugging v$VERSION"
+											doInitBackup
+											if doMountVolume; then
+												isBackingUp=true
+												doBackup
 											fi
-											echo "Backing up $BACKUPSRC to $BACKUPROOT/$BACKUPDIR"
-											doMountVolume
-											isBackingUp=true
-											doBackup
 										else
 											echo "Backup volume not connected at $(date)" >&2
-											exit 16
+											doExit 16
 										fi
 									else
 										echo "Not running as root. Exiting." >&2
-										exit 5
+										doExit 5
 									fi;;
 		("u"|"update")				doUpdateScript;;
 		("s"|"setup")				doReconfig;;
 		("h"|"help"	)				displayInfo;;
 		(*)							echo "Unrecognised command: $command. Type $THISSCRIPT help for help"
-									exit 20;;
+									doExit 20;;
 	esac
 }
 
@@ -719,6 +1013,7 @@ doDone()
 	fi
 }
 
+#At last, we come to the beginning.
 doInit $@
 doMain
 doDone

@@ -1,17 +1,12 @@
-#NOTE: All options in this sample MUST be provided in a valid config file
-#any missing or bad values will cause the script to fail or misbehave.
+# backup.sh 2.1 configuration file
+# Created 24 July 2019 by hp6000
+# Do not edit manually, use /pub/scripts/backup.sh setup to configure.
 
 UUID="0096c06d-859e-449c-8fd5-afaab01c0ef2"
-a=($(blkid | grep $UUID))
-DEVICEURI=${a[0]::-1}
-unset a
 BACKUPROOT="/mnt/archive"
 BACKUPDIR="backups"
 BACKUPSRC="/home"
 EXCLUDES="GoogleDrive .cache"
-SCRIPTNAME="backupv2"
-BACKUPLOG="/var/log/$SCRIPTNAME.log"
-SCRIPTFILE="/etc/cron.daily/$SCRIPTNAME"
-LOGCONFIG="/etc/logrotate.d/$SCRIPTNAME"
+SCRIPTNAME="backup"
 RSYNCCMD="/usr/bin/rsync -aAXogu --delete --ignore-errors"
 UNMOUNTAFTER="false"
