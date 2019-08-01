@@ -186,9 +186,6 @@ doCreateConfig()
 	if (sudo true); then
 		#First create a temporary config file
 		tmpname="$(tempfile)"
-		if [[ -e "$tmpname" ]]; then
-			rm "$tmpname"
-		fi
 		touch "$tmpname"
 		configEcho "# backup.sh $VERSION configuration file"
 		configEcho "# Created $(date) by $USER"
