@@ -182,7 +182,7 @@ doCreateConfig()
 	if $DEBUG; then echo "doCreateConfig"; fi
 	isSettingUp=true
 	echo "Creating new config file at $CONFFILE."
-	echo "We will need to use sudo to run the blkid command and edit default config locations, please enter your password if prompted."
+	echo "We will need to use sudo to edit default config locations, please enter your password if prompted."
 	if (sudo true); then
 		#First create a temporary config file
 		tmpname="$(tempfile)"
@@ -202,16 +202,16 @@ doCreateConfig()
 		echo "Waiting ten seconds for file system shenanigans to sort themselves out..."
 		doSleep 10s
 		if [[ "$defUUID" = "null" ]]; then #if we don't already have a UUID to use as default, get the last mounted device's UUID
-			a=($(sudo blkid | tail -n 1)) #store the last line of blkid's output in an array
+			a=($(blkid | tail -n 1)) #store the last line of blkid's output in an array
 			a[2]="${a[2]#*=}" #get everything after the "=" from the third item in the array
 			a[2]="${a[2]#\"}" #strip out the leading...
 			defUUID="${a[2]%\"}" #...and trailing quotes
 		fi
 		UUID="null"
-		while ! (sudo blkid | grep -q "$UUID"); do
+		while ! (blkid | grep -q "$UUID"); do
 			if $DEBUG; then echo "UUID=$UUID defUUID=$defUUID"; fi
 			clear
-			sudo blkid
+			blkid
 			echo
 			echo "This is a list of attached filesystems. Please enter the UUID of your backup device."
 			echo "Leave blank for $defUUID, otherwise copy and paste the UUID you want and hit ENTER."
@@ -219,7 +219,7 @@ doCreateConfig()
 			if [[ -z "$UUID" ]]; then
 				UUID="$defUUID"
 			fi
-			if ! (sudo blkid | grep -q "$UUID"); then
+			if ! (blkid | grep -q "$UUID"); then
 				echo "Couldn't find UUID $UUID in the device list. Is the device connected? Please hit ENTER to try again."
 				read dummy
 			fi
@@ -369,10 +369,10 @@ getURIFromUUID()
 {
 	if $DEBUG; then echo "getURIFromUUID"; fi
 	#Set device URI from UUID
-	#a=($(sudo blkid | grep \$UUID)) #search block ids for backup device UUID and place device info into an array
+	#a=($(blkid | grep \$UUID)) #search block ids for backup device UUID and place device info into an array
 	#echo "${a[0]::-1}" #first item in the array, minus the trailing ":" is the uri of the device with the matching UUID
 	#unset a
-	sudo blkid | grep $UUID | cut -d: -f1 # search output of blkid for UUID. First field, delimited by ":" is device URI
+	blkid | grep $UUID | cut -d: -f1 # search output of blkid for UUID. First field, delimited by ":" is device URI
 }
 
 doLoadConfig()
@@ -852,7 +852,7 @@ doCreateStartupScript()
 			fi
 		else
 			echo "Startup service $INITSCRIPT already exists. Cannot create startup service."
-			echo "To avoid this, run $THISSCRIPT setup --config=\"$CONFFILE\" and change the value of SCRIPTNAME."
+			echo "To avoid this, run $THISSCRIPT setup --config=\"$CONFFILE\" and change the default script name"
 		fi
 	else
 		echo "Sorry. Debian based distros only. If you want to code init.d scripts for your distro, get in touch."
@@ -891,7 +891,7 @@ doInit()
 	if $DEBUG; then echo "doInit \"$@\""; fi
 	trap killed SIGINT SIGTERM SIGHUP
 
-	VERSION="2.1.1"
+	VERSION="2.1.2"
 	THISSCRIPT=$(which "$0")
 	VERSIONURL="https://github.com/hp6000x/backup.sh/raw/master/VERSION"
 	SCRIPTURL="https://github.com/hp6000x/backup.sh/raw/master/backup.sh"
