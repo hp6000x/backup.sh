@@ -35,7 +35,7 @@ Second Note, if you are upgrading from v2.0 to v2.1 or later, you will need to r
 on all your config files, as the config file format has changed. Reconfiguring should be easy, as
 the defaults for all the options are derived from the existing config file.
 
-# How do I set it up
+# How do I set it up?
 
 Save this script somewhere in your PATH. I have a custom folder (/pub/scripts) which you can mimic
 if you like, just don't forget to set the folders to publicly readable with 
