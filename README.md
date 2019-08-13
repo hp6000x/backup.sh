@@ -51,15 +51,6 @@ need to make sure it's in your PATH. It may be there already. To check, simply t
 
 	echo $PATH
 	
-
-Before running the script for the first time, if you haven't done so before, you will need to run the 
-command
-
-	sudo blkid
-
-or the script won't run properly. For some reason, blkid needs to be run with sudo once before it can
-be run by the user
-
 As with all my scripts, I'd recommend reading through and understanding this script, and tailoring it
 to suit your system before running it for the first time. I take no responsibility for lost data.
 This one's quite complex, but it's well commented and if you're using an editor like geany which
