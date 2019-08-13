@@ -1,4 +1,4 @@
-# backup.sh version 2.1.2
+# backup.sh version 2.1.3
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Now with daemon mode. Just plug in your drive and it backs up almost immediately!
@@ -18,7 +18,7 @@ Commands:
 	[r]un:		Run a backup job. (Must be run as root)
 	[u]pdate:	Checks github for new version and updates as necessary.
 	[s]etup:	Create a new config file (either in the default place or where specified with --config).
-	[h]elp:	Display this information page.
+	[h]elp:		Display this information page.
 
 Options:
 
@@ -123,6 +123,13 @@ love to see this functionality available in other distros.
 
 # What's changed?
 
+v2.1.3
+
+Edited some output text. Minor tweaks here and there. Upgraded from tempfile command to mktemp as the former
+has been deprecated. Local vars for local people. Changed setup process to give default values in the text
+entry parts. Added command-specific help. Fixed some totally non-critical bugs introduced during last code
+tidying session. Oh yes, tidied some more code. Mirror finish. Even polished the "CTRL-C Cowboy" badge.
+
 v2.1.2
 
 Fixed an issue with blkid.
@@ -161,3 +168,6 @@ Additionally, added an interactive setup routine to create initial config file f
 Finally, script can now update itself if the version hosted at github changes. Call it with update command
 to do so.
 
+v1.0
+
+A big mess of ifs and thens. Conceived of and written over a couple of days, tweaked over a couple of months.
