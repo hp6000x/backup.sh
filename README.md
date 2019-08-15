@@ -1,4 +1,4 @@
-# backup.sh version 2.1.3
+# backup.sh version 2.1.4
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Now with daemon mode. Just plug in your drive and it backs up almost immediately!
@@ -23,6 +23,7 @@ Commands:
 Options:
 
 	-v					Give more details when running backups or displaying info
+	-h, --help			Give information on a specific command
 	--config={path to config file}	Use specified config file instead of default.
 
 Note, if you specify an alternate config which does not exist, you will automatically be taken
@@ -31,7 +32,7 @@ through the setup process, just as you are when running this script for the firs
 Second Note, if you are upgrading from v2.0 to v2.1 or later, you will need to run
 
 	backup.sh setup --config={config file}
-	
+
 on all your config files, as the config file format has changed. Reconfiguring should be easy, as
 the defaults for all the options are derived from the existing config file.
 
@@ -45,12 +46,12 @@ if you like, just don't forget to set the folders to publicly readable with
 and put it in your PATH by adding the following to your .bashrc file
 
 	PATH="/pub/scripts:$PATH"
-	
+
 In the bin folder of your home directory is another good place to put scripts like this. Again, you
 need to make sure it's in your PATH. It may be there already. To check, simply type
 
 	echo $PATH
-	
+
 As with all my scripts, I'd recommend reading through and understanding this script, and tailoring it
 to suit your system before running it for the first time. I take no responsibility for lost data.
 This one's quite complex, but it's well commented and if you're using an editor like geany which
@@ -59,7 +60,7 @@ makes it easy to jump between functions, it shouldn't be too daunting to get you
 The first thing you are going to want to do is configure backup.sh for your system. To do this, run
 
 	backup.sh setup
-	
+
 and follow the prompts, either keeping the presented defaults or choosing your own UUID and other settings.
 
 If you want to set up more than one backup job, you'll need to run the command with the --config option.
@@ -69,7 +70,7 @@ script name.
 There are three use cases for this script. The first is as an on-demand backup tool. Running
 
 	sudo backup.sh run
-	
+
 will, after it has been configured, back up the specified folders to the backup device, if it is connected.
 You can add a "-v" to any command to activate verbose mode. This will list all files as they are being
 backed up.
@@ -85,7 +86,7 @@ If you have a problem where you think you may need to restore from your backup s
 idea to disable the automated backup with
 
 	backup.sh disable
-	
+
 This will remove the scripts which perform the daily anacron job and stop your backups from being overwritten.
 
 
@@ -94,7 +95,7 @@ have an external backup device, only occasionally connected. If this is your con
 a Debian-based distro, run
 
 	backup.sh create
-	
+
 with an optional -v, and follow the prompts. This will create init.d startup scripts to run backup.sh in daemon
 mode, whereby it sits and waits for a device with the correct UUID to be connected, then performs the backup and
 optionally unmounts and waits for the device to be disconnected before repeating the process over.
@@ -103,7 +104,7 @@ If you want to connect your backup device for reasons other than backing up, suc
 browse the files in the backup, you will need to stop the daemon first. You can do this by typing
 
 	backup.sh destroy
-	
+
 This will stop the daemon from running, and remove it from init.d so that it doesn't start automatically at
 boot time. Use the aforementioned command to enable it again when you're done browsing, restoring or whatever.
 
@@ -113,6 +114,12 @@ you already know how to code init scripts for other distros, feel free to fork a
 love to see this functionality available in other distros.
 
 # What's changed?
+
+v2.1.4
+
+More tweaks and tidies. No bug fixes to speak of, think I got 'em all in the great sweep of 2.1.3. Made the
+daemon shutdown a little more graceful, only resorting to the kill command if it doesn't shut down in 30
+seconds. Only issue now is if your /tmp folder gets wiped for some reason, the daemon shuts down!
 
 v2.1.3
 
