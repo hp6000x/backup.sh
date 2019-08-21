@@ -1,4 +1,4 @@
-# backup.sh version 2.1.4
+# backup.sh version 2.1.5
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Now with daemon mode. Just plug in your drive and it backs up almost immediately!
@@ -18,12 +18,12 @@ Commands:
 	[r]un:		Run a backup job. (Must be run as root)
 	[u]pdate:	Checks github for new version and updates as necessary.
 	[s]etup:	Create a new config file (either in the default place or where specified with --config).
-	[h]elp:	Display this information page.
+	[h]elp:		Display this information page.
 
 Options:
 
 	-v					Give more details when running backups or displaying info
-	-h, --help				Give information on a specific command
+	-h, --help			Give information on a specific command
 	--config={path to config file}	Use specified config file instead of default.
 
 Note, if you specify an alternate config which does not exist, you will automatically be taken
@@ -114,6 +114,10 @@ you already know how to code init scripts for other distros, feel free to fork a
 love to see this functionality available in other distros.
 
 # What's changed?
+
+v2.1.5
+
+Found more opportunities to tidy code. Caught a new bug.
 
 v2.1.4
 

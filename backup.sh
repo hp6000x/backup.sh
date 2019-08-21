@@ -5,6 +5,7 @@
 #
 #CHANGELOG
 #
+#	v2.1.5	(Aug 19)	Found more opportunities for tidying. Caught a new bug.
 #	v2.1.4	(Aug 19)	More tweaks and tidies. Not sure if there are any bugs left. Don't think any escaped the great sweep of 2.1.3
 #	v2.1.3	(Aug 19)	Tweaks, changes to output, moved some functions, bug fixes, more code tidying. Added local vars, changed setup to populate default vars when getting input.
 #	v2.1.2	(Aug 19)	Fixed an issue with blkid
@@ -41,16 +42,22 @@
 
 #important settings get loaded before anything else happens.
 DEBUG=false
-VERSION="2.1.4"
+VERSION="2.1.5"
 THISSCRIPT=$(which "$0")
-VERSIONURL="https://github.com/hp6000x/backup.sh/raw/master/VERSION"
-SCRIPTURL="https://github.com/hp6000x/backup.sh/raw/master/backup.sh"
+VERSIONURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/VERSION"
+SCRIPTURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/backup.sh"
 PIDFILE="/tmp/BACKUP_PID"
+
+#output debug message only if in debug mode
+echoDebug() 
+{
+	if $DEBUG; then echo "[DEBUG] $1"; fi
+}
 
 #Exit the script unless we're in daemon mode, then just report an exit condition.
 doExit()
 {
-	if $DEBUG; then echo "[DEBUG] doExit $1"; fi
+	echoDebug "doExit $1"
 	if $isDaemonMode; then
 		echo "Exit condition reached. Error code $1"
 	else
@@ -61,28 +68,30 @@ doExit()
 #Exit with an error message. Format is doExitMessage errnum "error message"
 doExitMessage()
 {
-	if $DEBUG; then echo "[DEBUG] doExitMessage $1 \"$2\""; fi
+	echoDebug "doExitMessage $1 \"$2\""
 	echo "$2" >&2
 	doExit "$1"
 }
 
 doSleep()
 {
-	if $DEBUG; then echo "[DEBUG] doSleep $1"; fi
+	echoDebug "doSleep $1"
 	isSleeping=true
 	sleep $1
 	isSleeping=false
 }
 
 #call me when backup fails :-)
-backupFail() {
-	if $DEBUG; then echo "[DEBUG] backupFail \"$1\""; fi
+backupFail()
+{
+	echoDebug "backupFail \"$1\""
 	doExitMessage $1 "Backup failed at $(date)"
 }
 
 #output time and text, for logging
-echotd() {
-	if $DEBUG; then echo "[DEBUG] echotd \"$@\""; fi
+echotd()
+{
+	echoDebug "echotd \"$@\""
 	echo "[$(date +%T)]" "$@"
 }
 
@@ -149,19 +158,19 @@ isRoot()
 #echo text redirected to the temporary config file
 configEcho()
 {
-	if $DEBUG; then echo "[DEBUG] configEcho \"$1\""; fi
+	echoDebug "configEcho \"$1\""
 	echo "$1" >> "$tmpname" 
 }
 
 sudoFail()
 {
-	if $DEBUG; then echo "[DEBUG] sudoFail"; fi
+	echoDebug "sudoFail"
 	doExitMessage 19 "Failed to get sudo credentials. Exiting."
 }
 
 rootFail()
 {
-	if $DEBUG; then echo "[DEBUG] rootFail"; fi
+	echoDebug "rootFail"
 	doExitMessage 5 "Not running as root. Exiting."
 }
 
@@ -176,7 +185,7 @@ getParameters()
 
 getSudoPassword()
 {
-	if $DEBUG; then echo "[DEBUG] getSudoPassword"; fi
+	echoDebug "getSudoPassword"
 	if ! $alreadyasked; then
 		echo "We need to use sudo for this. Please enter your password if asked."
 	fi
@@ -215,7 +224,7 @@ waitForEnter()
 
 displayInfo()
 {
-	if $DEBUG; then echo "[DEBUG] displayInfo \"$1\""; fi
+	echoDebug "displayInfo \"$1\""
 	local showextra
 	local command
 	command="$1"
@@ -229,9 +238,9 @@ displayInfo()
 		echo "Commands:"
 		echo "	[e]nable	Enable the daily automated backup. (Uses sudo)"
 		echo "	[d]isable	Disable the daily automated backup. (Uses sudo)"
+		echo "	NOTE: Daemon mode is not intended for permanently connected backup devices."
 		echo "	[c]reate	Create init.d script to launch daemon mode at startup. (Uses sudo)"
 		echo "	destro[y]	Remove init.d script which launches daemon mode at startup. (Uses sudo)"
-		echo "		NOTE: Daemon mode is not intended for permanently connected backup devices."
 		echo "	[r]un		Run a backup job. (Must be run as root)"
 		echo "	[u]pdate	Checks github for new version and updates as necessary."
 		echo "	[s]etup		Create a new config file (either in the default of $defCONFFILE or where specified with --config, may require sudo)."
@@ -239,8 +248,9 @@ displayInfo()
 		echo
 		echo "Options:"
 		echo "	-v				Give more details when running backups or displaying info"
-		echo "	-h				Give more info about a specific command."
+		echo "	-h, --help			Give more info about a specific command."
 		echo "	--config={path to config file}	Use specified config file instead of default."
+		echo "	--debug				Run in debug mode."
 		echo
 		echo "Note, if you specify an alternate config which does not exist, you will automatically be taken"
 		echo "through the setup process, just as you are when running this script for the first time."
@@ -278,7 +288,7 @@ displayInfo()
 
 setDefaults()
 {
-	if $DEBUG; then echo "[DEBUG] setDefaults"; fi
+	echoDebug "setDefaults"
 	defUUID="null"
 	defBACKUPROOT="/mnt/backup"
 	defBACKUPDIR="backups"
@@ -291,7 +301,7 @@ setDefaults()
 
 doCreateConfig()
 {
-	if $DEBUG; then echo "[DEBUG] doCreateConfig"; fi
+	echoDebug "doCreateConfig"
 	isSettingUp=true
 	local inkey
 	local parm
@@ -328,7 +338,7 @@ doCreateConfig()
 	fi
 	UUID="null"
 	#while ! (blkid | grep -q "$UUID"); do
-	if $DEBUG; then echo "[DEBUG] UUID=$UUID defUUID=$defUUID"; fi
+	echoDebug "UUID=$UUID defUUID=$defUUID"
 	clear
 	blkid | grep -v "/dev/loop"
 	echo
@@ -338,11 +348,6 @@ doCreateConfig()
 	echo
 	echo "Copy and paste the UUID you want if it's different from that suggested and hit ENTER."
 	read -rei "$defUUID" UUID
-		#if ! (blkid | grep -q "$UUID"); then
-		#	echo "Couldn't find UUID $UUID in the device list. Is the device connected? Please hit ENTER to try again."
-		#	waitForEnter
-		#fi
-	#done
 	configEcho "UUID=\"$UUID\""
 	#Get the mount point BACKUPROOT
 	echo "Please enter the mount point for the backup volume and press ENTER."
@@ -414,7 +419,7 @@ doCreateConfig()
 
 doReconfig()
 {
-	if $DEBUG; then echo "[DEBUG] doReconfig"; fi
+	echoDebug "doReconfig"
 	local rmcmd
 	local cpcmd
 	local confdir
@@ -463,7 +468,7 @@ getURIFromUUID()
 
 doLoadConfig()
 {
-	if $DEBUG; then echo "[DEBUG] doLoadConfig"; fi
+	echoDebug "doLoadConfig"
 	local v
 	
 	if [[ ! -e "$CONFFILE" ]]; then #is the config file missing?
@@ -496,7 +501,7 @@ doLoadConfig()
 
 getArguments()
 {
-	if $DEBUG; then echo "[DEBUG] getArguments \"$@\""; fi
+	echoDebug "getArguments \"$@\""
 	command=$1
 	if [[ -z "$command" ]]; then
 		doExitMessage 9 "Usage: $THISSCRIPT command [options]"
@@ -510,6 +515,7 @@ getArguments()
 			case "$i" in
 				("-v")			verbose=true;;
 				("-h"|"--help")	displayInfo $command; doExit 0;;
+				("--debug")		DEBUG=true;;
 				(*)				doExitMessage 9 "Unknown option $i. Type $THISSCRIPT help for help";;
 			esac
 		fi
@@ -543,7 +549,7 @@ doCreateLogRotate()
 
 doEnableBackups()
 {
-	if $DEBUG; then echo "[DEBUG] doEnableBackups"; fi
+	echoDebug "doEnableBackups"
 	local parm
 	local nicebin
 	echo "Enabling daily rsync backups"
@@ -582,7 +588,7 @@ doEnableBackups()
 
 doDisableBackups()
 {
-	if $DEBUG; then echo "[DEBUG] doDisableBackups"; fi
+	echoDebug "doDisableBackups"
 	local exitval
 	echo "Disabling daily rsync backups"
 	getSudoPassword
@@ -619,7 +625,7 @@ doDisableBackups()
 
 doMountVolume()
 {
-	if $DEBUG; then echo "[DEBUG] doMountVolume"; fi
+	echoDebug "doMountVolume"
 	local a
 	local backupmounted
 	if [[ -z "$DEVICEURI" ]]; then
@@ -703,7 +709,7 @@ doMountVolume()
 
 doUnmountVolume()
 {
-	if $DEBUG; then echo "[DEBUG] doUnmountVolume"; fi
+	echoDebug "doUnmountVolume"
 	#Unmount the backup volume
 	echotd "Unmounting backup volume" 
 	doSleep 10 # wait 10 seconds before unmounting, just in case there's write caching involved
@@ -736,13 +742,12 @@ doInitBackup()
 
 doBackup()
 {
-	if $DEBUG; then echo "[DEBUG] doBackup"; fi
+	echoDebug "doBackup"
 	#Performing the backup
 	local errorflag
 	local opt
 	local sourcedir
 	local a
-	local resultstring
 	errorflag=false
 	for sourcedir in $BACKUPSRC; do #iterate through the named directories
 		echotd "Backing up $sourcedir"
@@ -768,7 +773,7 @@ doBackup()
 
 doDoneBackup()
 {
-	if $DEBUG; then echo "[DEBUG] doDone"; fi
+	echoDebug "doDone"
 	if $isBackingUp; then
 		echo "Backup finished at $(date) $resultstring errors" 
 		isBackingUp=false #Finished backing up
@@ -790,7 +795,7 @@ doBackupProcess()
 
 doUpdateScript()
 {
-	if $DEBUG; then echo "[DEBUG] doUpdateScript"; fi
+	echoDebug "doUpdateScript"
 	local gitVersion
 	local tmpname
 	gitVersion=$(getAvailVersion)
@@ -826,7 +831,7 @@ daemonEnded()
 
 daemonMode()
 {
-	if $DEBUG; then echo "[DEBUG] daemonMode"; fi
+	echoDebug "daemonMode"
 	isDaemonMode=true
 	if [[ ! -e "$PIDFILE" ]]; then
 		echo "Starting daemon at $(date)"
@@ -841,7 +846,7 @@ daemonMode()
 			done
 			doSleep 10s # it takes a few seconds for linux to set up the device after connecting.
 			if (blkid | grep -q "$UUID"); then #if UUID is connected
-				if $DEBUG; then echo "[DEBUG] Device connected. Backing up."; fi
+				echoDebug "Device connected. Backing up."
 				doBackupProcess
 			fi
 			while (blkid | grep -q "$UUID"); do #while UUID is connected
@@ -860,7 +865,7 @@ daemonMode()
 
 killDaemon()
 {
-	if $DEBUG; then echo "[DEBUG] killDaemon"; fi
+	echoDebug "killDaemon"
 	local process
 	process="$(cat $PIDFILE)"
 	if [[ -e "$PIDFILE" ]]; then
@@ -881,7 +886,7 @@ killDaemon()
 
 doCreateStartupScript()
 {
-	if $DEBUG; then echo "[DEBUG] doCreateStartupScript"; fi
+	echoDebug "doCreateStartupScript"
 	local inkey
 	local opt
 	local nicebin
@@ -962,7 +967,7 @@ doCreateStartupScript()
 
 doDestroyStartupScript()
 {
-	if $DEBUG; then echo "[DEBUG] doDestroyStartupScript"; fi
+	echoDebug "doDestroyStartupScript"
 	local a
 	echo "Destroying startup script."
 	getSudoPassword
@@ -986,7 +991,7 @@ doDestroyStartupScript()
 
 doInit()
 {
-	if $DEBUG; then echo "[DEBUG] doInit \"$@\""; fi
+	echoDebug "doInit \"$@\""
 	trap killed SIGINT SIGTERM SIGHUP
 	local gitVersion
 	local idx
@@ -1079,7 +1084,7 @@ doInit()
 
 doMain()
 {
-	if $DEBUG; then echo "[DEBUG] doMain. Command is: $command. Verbose mode: $verbose"; fi
+	echoDebug "doMain. Command is: $command. Verbose mode: $verbose"
 	case $command in
 		("e"|"enable")				doEnableBackups;;
 		("d"|"disable")				doDisableBackups;;
@@ -1112,6 +1117,6 @@ doMain()
 }
 
 #At last, we come to the beginning.
-if $DEBUG; then echo "[DEBUG] $0 $@"; fi
+echoDebug "$0 $@"
 doInit $@
 doMain
