@@ -5,6 +5,7 @@
 #
 #CHANGELOG
 #
+#	v2.1.6	(Aug 19)	Found a few errant lines that had gotten themselves turned around. Moved them to where they belong.
 #	v2.1.5	(Aug 19)	Found more opportunities for tidying. Caught a new bug.
 #	v2.1.4	(Aug 19)	More tweaks and tidies. Not sure if there are any bugs left. Don't think any escaped the great sweep of 2.1.3
 #	v2.1.3	(Aug 19)	Tweaks, changes to output, moved some functions, bug fixes, more code tidying. Added local vars, changed setup to populate default vars when getting input.
@@ -42,7 +43,7 @@
 
 #important settings get loaded before anything else happens.
 DEBUG=false
-VERSION="2.1.5"
+VERSION="2.1.6"
 THISSCRIPT=$(which "$0")
 VERSIONURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/VERSION"
 SCRIPTURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/backup.sh"
@@ -309,6 +310,13 @@ doCreateConfig()
 	local mvcmd
 	local rmcmd
 	echo "Creating new config file at $CONFFILE."
+	if [[ -z "$(blkid)" ]]; then
+		echo "blkid has not been initialised. We need to run sudo blkid to initialise it."
+		getSudoPassword
+		sudo blkid > /dev/null 2>&1
+		echo "Done."
+		echo
+	fi
 	#First create a temporary config file
 	tmpname="$(mktemp)"
 	configEcho "# backup.sh $VERSION configuration file"
@@ -328,13 +336,6 @@ doCreateConfig()
 		a="${a#*=}" #get everything after the "=" from a
 		a="${a#\"}" #strip out the leading...
 		defUUID="${a%\"}" #...and trailing quotes
-	fi
-	if [[ -z "$(blkid)" ]]; then
-		echo "blkid has not been initialised. We need to run sudo blkid to initialise it."
-		getSudoPassword
-		sudo blkid > /dev/null 2>&1
-		echo "Done."
-		echo
 	fi
 	UUID="null"
 	#while ! (blkid | grep -q "$UUID"); do
@@ -773,7 +774,7 @@ doBackup()
 
 doDoneBackup()
 {
-	echoDebug "doDone"
+	echoDebug "doDoneBackup"
 	if $isBackingUp; then
 		echo "Backup finished at $(date) $resultstring errors" 
 		isBackingUp=false #Finished backing up
