@@ -1,4 +1,4 @@
-# backup.sh version 2.1.6
+# backup.sh version 2.1.7
 
 Mounts backup volume, backs up data, schedules daily backups, optionally unmounts after backup.
 Now with daemon mode. Just plug in your drive and it backs up almost immediately!
@@ -115,10 +115,13 @@ love to see this functionality available in other distros.
 
 # What's changed?
 
+v2.1.7
+
+Couple of minor tweaks and improvements.
+
 v2.1.6
 
 Found a few errant lines that had gotten themselves turned around. Moved them to where they belong.
-Couple of minor tweaks and improvements.
 
 v2.1.5
 

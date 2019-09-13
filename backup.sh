@@ -5,7 +5,8 @@
 #
 #CHANGELOG
 #
-#	v2.1.6	(Sep 19)	Found a few errant lines that had gotten themselves turned around. Moved them to where they belong. Couple of tweaks and improvements
+#	v2.1.7	(Sep 19)	Couple of tweaks and improvements
+#	v2.1.6	(Aug 19)	Found a few errant lines that had gotten themselves turned around. Moved them to where they belong.
 #	v2.1.5	(Aug 19)	Found more opportunities for tidying. Caught a new bug.
 #	v2.1.4	(Aug 19)	More tweaks and tidies. Not sure if there are any bugs left. Don't think any escaped the great sweep of 2.1.3
 #	v2.1.3	(Aug 19)	Tweaks, changes to output, moved some functions, bug fixes, more code tidying. Added local vars, changed setup to populate default vars when getting input.
