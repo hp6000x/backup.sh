@@ -118,6 +118,7 @@ love to see this functionality available in other distros.
 v2.1.6
 
 Found a few errant lines that had gotten themselves turned around. Moved them to where they belong.
+Couple of minor tweaks and improvements.
 
 v2.1.5
 

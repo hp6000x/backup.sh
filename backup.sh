@@ -5,7 +5,7 @@
 #
 #CHANGELOG
 #
-#	v2.1.6	(Aug 19)	Found a few errant lines that had gotten themselves turned around. Moved them to where they belong.
+#	v2.1.6	(Sep 19)	Found a few errant lines that had gotten themselves turned around. Moved them to where they belong. Couple of tweaks and improvements
 #	v2.1.5	(Aug 19)	Found more opportunities for tidying. Caught a new bug.
 #	v2.1.4	(Aug 19)	More tweaks and tidies. Not sure if there are any bugs left. Don't think any escaped the great sweep of 2.1.3
 #	v2.1.3	(Aug 19)	Tweaks, changes to output, moved some functions, bug fixes, more code tidying. Added local vars, changed setup to populate default vars when getting input.
@@ -40,6 +40,7 @@
 #22 - Failed to remove init.d script
 #23 - Function not yet implemented
 #24 - rsync not installed
+#25 - update failed to install
 
 #important settings get loaded before anything else happens.
 DEBUG=false
@@ -309,6 +310,7 @@ doCreateConfig()
 	local a
 	local mvcmd
 	local rmcmd
+	local loop
 	echo "Creating new config file at $CONFFILE."
 	if [[ -z "$(blkid)" ]]; then
 		echo "blkid has not been initialised. We need to run sudo blkid to initialise it."
@@ -385,15 +387,23 @@ doCreateConfig()
 			echo "Default is \"N\""
 		fi
 		read -r -n 1 inkey
-		case $inkey in
-			("y"|"Y")	UNMOUNTAFTER=true;;
-			("n"|"N")	UNMOUNTAFTER=false;;
-			("")		if $defUNMOUNTAFTER; then
-							UNMOUNTAFTER=true
-						else
-							UNMOUNTAFTER=false
-						fi;;
-		esac
+		loop=true
+		while $loop; do
+			case $inkey in
+				("y"|"Y")	UNMOUNTAFTER=true
+							loop=false;;
+				("n"|"N")	UNMOUNTAFTER=false
+							loop=false;;
+				("")		if $defUNMOUNTAFTER; then
+								UNMOUNTAFTER=true
+							else
+								UNMOUNTAFTER=false
+							fi
+							loop=false;;
+				(*)			echo "Invalid key, \"$inkey\". Try again."
+							read -r -n 1 inkey;;
+			esac
+		done
 		echo
 	done
 	configEcho "UNMOUNTAFTER=\"$UNMOUNTAFTER\""
@@ -745,7 +755,6 @@ doBackup()
 {
 	echoDebug "doBackup"
 	#Performing the backup
-	local errorflag
 	local opt
 	local sourcedir
 	local a
@@ -761,12 +770,10 @@ doBackup()
 			opt="$opt --exclude=$a" #format the excludes list for rsync use
 		done
 
-		if ! $RSYNCCMD $opt "$sourcedir" "$BACKUPROOT"/"$BACKUPDIR"/; then #perform the backup and check error status
-			errorflag=true #Command completed with errors, so set flag
-		fi
 		resultstring="without"
-		if $errorflag; then
+		if ! $RSYNCCMD $opt "$sourcedir" "$BACKUPROOT"/"$BACKUPDIR"/; then #perform the backup and check error status
 			resultstring="with"
+			errorflag=true
 		fi
 		echotd "Finished backing up $sourcedir $resultstring errors." 
 	done
@@ -810,8 +817,14 @@ doUpdateScript()
 			mv "$THISSCRIPT" "$THISSCRIPT.bak" #back up current script
 			chmod 755 "$tmpname" #make the new script executable
 			mv "$tmpname" "$THISSCRIPT" #move the new script to the location and name of the current script
-			echo "Updated backup script. Check what's changed by opening $THISSCRIPT for editing, or going to https://github.com/hp6000x/backup.sh"
-			doExit 0
+			if [[ -a "$THISSCRIPT" ]]; then
+				echo "Updated backup script. Check what's changed by opening $THISSCRIPT for editing, or going to https://github.com/hp6000x/backup.sh"
+				doExit 0
+			else
+				echo "Update failed. Restoring backup."
+				cp "$THISSCRIPT.bak" "$THISSCRIPT"
+				doExit 25
+			fi
 		else #download failed
 			echo "Could not get new script file from $SCRIPTURL. Is the repository still there?"
 		fi
