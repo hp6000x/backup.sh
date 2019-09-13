@@ -45,7 +45,7 @@
 
 #important settings get loaded before anything else happens.
 DEBUG=false
-VERSION="2.1.6"
+VERSION="2.1.7"
 THISSCRIPT=$(which "$0")
 VERSIONURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/VERSION"
 SCRIPTURL="https://raw.githubusercontent.com/hp6000x/backup.sh/master/backup.sh"
